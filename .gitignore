@@ -1,0 +1,11 @@
+# --- Datos personales / fuentes: NO publicar (repo público) ---
+WhatsApp Chat - Franco Militel.zip
+*.zip
+
+# --- Carpeta duplicada: la app ahora vive en la raíz del repo ---
+la-plani-app/
+
+# --- Basura del sistema ---
+.DS_Store
+Thumbs.db
+desktop.ini
