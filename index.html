@@ -720,9 +720,9 @@ function parseRestSeconds(rest){
    ESTADO + storage
    ========================================================================= */
 const LS_KEY="laplani:v1";
-let state={logs:[],prefs:{theme:null}};
+let state={logs:[],deleted:[],prefs:{theme:null,sync:null}};
 function load(){ try{ const r=localStorage.getItem(LS_KEY); if(r){ const p=JSON.parse(r);
-  state.logs=Array.isArray(p.logs)?p.logs:[]; state.prefs=p.prefs||{theme:null}; } }catch(e){} }
+  state.logs=Array.isArray(p.logs)?p.logs:[]; state.deleted=Array.isArray(p.deleted)?p.deleted:[]; state.prefs=p.prefs||{theme:null,sync:null}; } }catch(e){} }
 function save(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch(e){} }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function todayISO(){ const d=new Date(); const o=d.getTimezoneOffset(); return new Date(d-o*6e4).toISOString().slice(0,10); }
@@ -866,7 +866,7 @@ function saveSession(){
   const log={ id:uid(), date:draft.date, createdAt:Date.now(), mesoName:draft.mesoName, weekLabel:draft.weekLabel, dayName:draft.dayName,
     exercises:draft.exercises.filter(e=>!e.header).map(e=>{ const dn=e.sets.filter(Boolean).length; return {text:e.raw,series:e.series,setsDone:dn,done:dn>=e.series&&e.series>0,note:e.note.trim()}; }),
     sensacion:draft.sensacion, esfuerzo:draft.esfuerzo, duracion:draft.duracion?+draft.duracion:null, notas:draft.notas.trim() };
-  state.logs.push(log); save(); draft=null; renderTrain(); toast("¡Guardado! 💪");
+  state.logs.push(log); save(); draft=null; renderTrain(); toast("¡Guardado! 💪"); maybeSync();
 }
 
 /* =========================================================================
@@ -937,7 +937,7 @@ function renderHistory(){
         <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn sm danger" data-del="${l.id}">Eliminar</button></div>
       </div></details>`; }).join("");
   view.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click",()=>{ const id=b.dataset.del;
-    if(b.dataset.confirm){ state.logs=state.logs.filter(x=>x.id!==id); save(); renderHistory(); toast("Entrenamiento eliminado"); }
+    if(b.dataset.confirm){ state.logs=state.logs.filter(x=>x.id!==id); state.deleted=[...new Set([...(state.deleted||[]),id])]; save(); maybeSync(); renderHistory(); toast("Entrenamiento eliminado"); }
     else{ b.dataset.confirm="1"; b.textContent="Tocá de nuevo para confirmar"; setTimeout(()=>{if(b){b.dataset.confirm="";b.textContent="Eliminar";}},2600); } }));
 }
 
@@ -998,10 +998,25 @@ function barChart(weeks,maxC){
    ========================================================================= */
 function renderData(){
   const view=document.getElementById("v-data"); const n=state.logs.length;
+  const sc=state.prefs.sync||{}; const defCode=sc.code||genCode(); const on=syncConfigured();
   view.innerHTML=`
     <div class="section-title" style="margin-top:4px">Tus datos</div>
     <div class="card pad"><p style="margin:0 0 4px"><b>${n}</b> ${n===1?"entrenamiento guardado":"entrenamientos guardados"} en este dispositivo.</p>
-      <p class="muted" style="font-size:13px;margin:0">Todo se guarda solo en este navegador. Hacé un respaldo de vez en cuando (sobre todo antes de cambiar de teléfono o limpiar datos).</p></div>
+      <p class="muted" style="font-size:13px;margin:0">${on?"Se guardan en este navegador y se sincronizan con la nube.":"Todo se guarda solo en este navegador. Activá el sync o hacé un respaldo de vez en cuando."}</p></div>
+
+    <div class="section-title">Sincronización en la nube</div>
+    <div class="card pad">
+      <p class="muted" style="font-size:13px;margin:0 0 12px">Guardá tus datos afuera del teléfono y compartilos entre el celu y la compu. Pegá los datos de tu proyecto de Supabase y usá el <b>mismo código de sync</b> en cada dispositivo.</p>
+      <label class="fld" style="margin:0 0 10px"><span>URL de Supabase</span><input type="text" id="syUrl" placeholder="https://xxxx.supabase.co" value="${esc(sc.url||"")}"></label>
+      <label class="fld" style="margin:0 0 10px"><span>anon key</span><input type="text" id="syKey" placeholder="eyJhbGci…" value="${esc(sc.key||"")}"></label>
+      <label class="fld" style="margin:0 0 8px"><span>Código de sync (igual en todos tus dispositivos)</span><input type="text" id="syCode" value="${esc(defCode)}"></label>
+      <button class="btn ghost sm" id="syCopy">Copiar código</button>
+      <div style="height:12px"></div>
+      <button class="btn primary block" id="syConnect">${on?"Guardar y sincronizar":"Conectar y sincronizar"}</button>
+      <div id="syStatus" class="muted" style="font-size:12.5px;margin-top:10px">${on?("☁️ Conectado · última sync "+fmtAgo(sc.lastSync)+(sc.lastErr?(" · ⚠️ "+esc(sc.lastErr)):"")):"No configurado — la app funciona igual en este dispositivo."}</div>
+      ${on?`<div class="row" style="gap:10px;margin-top:10px"><button class="btn sm" id="syNow" style="flex:1">Sincronizar ahora</button><button class="btn sm danger" id="syOff" style="flex:1">Desconectar</button></div>`:""}
+    </div>
+
     <div class="section-title">Respaldo</div>
     <div class="card pad"><p class="muted" style="font-size:13px;margin:0 0 10px">Copiá este texto y guardalo donde quieras (notas, mail, Drive). Es tu historial completo.</p>
       <textarea id="backup" readonly style="min-height:110px;font-family:var(--font-mono);font-size:12px">${esc(JSON.stringify({logs:state.logs}))}</textarea>
@@ -1025,7 +1040,23 @@ function renderData(){
       save(); toast(`Importados ${add} entrenamientos`); renderData(); }catch(e){ toast("No pude leer ese respaldo 😕"); } };
   view.querySelector("#goPdf").onclick=()=>go("routines");
   view.querySelector("#goProg").onclick=()=>go("progress");
-  view.querySelector("#wipeBtn").onclick=function(){ if(this.dataset.c){ state.logs=[]; save(); toast("Datos borrados"); renderData(); }
+  const syCopyBtn=view.querySelector("#syCopy");
+  if(syCopyBtn) syCopyBtn.onclick=async()=>{ const v=view.querySelector("#syCode").value.trim();
+    try{ await navigator.clipboard.writeText(v); toast("Código copiado 📋"); }catch(e){ const i=view.querySelector("#syCode"); i.focus(); i.select(); toast("Seleccioná y copiá"); } };
+  view.querySelector("#syConnect").onclick=async function(){
+    const url=view.querySelector("#syUrl").value.trim(); const key=view.querySelector("#syKey").value.trim(); const code=view.querySelector("#syCode").value.trim();
+    if(!url||!key||!code){ toast("Completá URL, key y código"); return; }
+    state.prefs.sync={url:url, key:key, code:code, lastSync:(state.prefs.sync&&state.prefs.sync.lastSync)||null}; save();
+    this.textContent="Sincronizando…"; this.disabled=true;
+    const res=await syncNow();
+    toast(res.ok?("¡Sincronizado! "+res.n+" entrenamientos ☁️"):("Error: "+res.err));
+    renderData(); };
+  const syNowBtn=view.querySelector("#syNow");
+  if(syNowBtn) syNowBtn.onclick=async function(){ this.textContent="Sincronizando…"; this.disabled=true; const res=await syncNow(); toast(res.ok?("Sincronizado ☁️ ("+res.n+")"):("Error: "+res.err)); renderData(); };
+  const syOffBtn=view.querySelector("#syOff");
+  if(syOffBtn) syOffBtn.onclick=function(){ if(this.dataset.c){ state.prefs.sync=null; save(); toast("Sync desconectado"); renderData(); }
+    else{ this.dataset.c="1"; this.textContent="Tocá de nuevo para desconectar"; setTimeout(()=>{ if(this){ this.dataset.c=""; this.textContent="Desconectar"; } },2600); } };
+  view.querySelector("#wipeBtn").onclick=function(){ if(this.dataset.c){ state.deleted=[...new Set([...(state.deleted||[]),...state.logs.map(l=>l.id)])]; state.logs=[]; save(); maybeSync(); toast("Datos borrados"); renderData(); }
     else{ this.dataset.c="1"; this.textContent="Tocá de nuevo para borrar TODO"; setTimeout(()=>{this.dataset.c="";this.textContent="Borrar todos mis datos";},2600); } };
 }
 
@@ -1062,8 +1093,45 @@ function bindTimer(){
   document.getElementById("rtSkip").onclick=stopRest;
 }
 
+/* =========================================================================
+   SINCRONIZACIÓN EN LA NUBE (Supabase, opcional)
+   localStorage sigue siendo la base. Esto baja + fusiona y sube cuando hay
+   internet y está configurado. Fusión por id de entrenamiento + tombstones
+   para que los borrados también se propaguen. Solo funciona en la app alojada
+   (no dentro del preview de claude.ai, que bloquea las llamadas externas).
+   ========================================================================= */
+function genCode(){ try{ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+  return Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2); }
+function fmtAgo(ts){ if(!ts) return "nunca"; const s=Math.round((Date.now()-ts)/1000);
+  if(s<45) return "recién"; if(s<90) return "hace 1 min"; const m=Math.round(s/60);
+  if(m<60) return "hace "+m+" min"; const h=Math.round(m/60); if(h<24) return "hace "+h+" h"; return "hace "+Math.round(h/24)+" d"; }
+function syncConfigured(){ const c=state.prefs.sync; return !!(c&&c.url&&c.key&&c.code); }
+function maybeSync(){ if(!syncConfigured()) return; if(typeof navigator!=="undefined"&&navigator.onLine===false) return;
+  syncNow().then(res=>{ if(res&&res.ok){ if(current!=="train"){ renderers[current]&&renderers[current](); } else if(document.getElementById("syStatus")){ renderData(); } } }); }
+async function syncNow(){
+  const c=state.prefs.sync; if(!syncConfigured()) return {ok:false,err:"no configurado"};
+  const base=c.url.replace(/\/+$/,"")+"/rest/v1/sync";
+  const h={apikey:c.key,"Authorization":"Bearer "+c.key,"Content-Type":"application/json"};
+  try{
+    const r=await fetch(base+"?select=data&code=eq."+encodeURIComponent(c.code),{headers:h});
+    if(!r.ok) throw new Error("HTTP "+r.status+" al leer");
+    const rows=await r.json(); const remote=(rows[0]&&rows[0].data)||{logs:[],deleted:[]};
+    const delSet=new Set([...(state.deleted||[]),...(remote.deleted||[])]);
+    const map=new Map();
+    for(const l of [...(remote.logs||[]),...state.logs]){ if(!l||!l.id||delSet.has(l.id)) continue;
+      const ex=map.get(l.id); if(!ex||(l.createdAt||0)>=(ex.createdAt||0)) map.set(l.id,l); }
+    const merged=[...map.values()];
+    state.logs=merged; state.deleted=[...delSet]; save();
+    const body=JSON.stringify([{code:c.code,data:{logs:merged,deleted:[...delSet]},updated_at:new Date().toISOString()}]);
+    const w=await fetch(base+"?on_conflict=code",{method:"POST",headers:Object.assign({"Prefer":"resolution=merge-duplicates,return=minimal"},h),body:body});
+    if(!w.ok) throw new Error("HTTP "+w.status+" al guardar");
+    state.prefs.sync.lastSync=Date.now(); state.prefs.sync.lastErr=null; save();
+    return {ok:true,n:merged.length};
+  }catch(e){ if(state.prefs.sync){ state.prefs.sync.lastErr=(e&&e.message)||"error"; save(); } return {ok:false,err:(e&&e.message)||"error"}; }
+}
+
 const renderers={train:renderTrain,routines:renderRoutines,history:renderHistory,progress:renderProgress,data:renderData};
-load(); applyTheme(); bindTimer(); renderTrain();
+load(); applyTheme(); bindTimer(); renderTrain(); maybeSync();
 </script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
