@@ -735,7 +735,7 @@ function parseRestSeconds(rest){
 /* =========================================================================
    ESTADO + storage
    ========================================================================= */
-const APP_VERSION="2026-10-18.3";
+const APP_VERSION="2026-10-18.4";
 const LS_KEY="laplani:v1";
 let state={logs:[],deleted:[],edits:{},prefs:{theme:null,sync:null}};
 function load(){ try{ const r=localStorage.getItem(LS_KEY); if(r){ const p=JSON.parse(r);
@@ -798,7 +798,8 @@ function buildDraft(){
   const ls=lastForDay(m.name,d.name);
   draft={ mesoName:m.name, weekLabel:w.label, dayName:d.name, dayNote:d.note||"", date:todayISO(),
     exercises:items.map(x=>{ const ns=x.header?0:(x.series||1); const last=x.header?null:lastForExercise(x.name);
-      return {name:x.name, header:x.header, reps:x.reps, rest:x.rest, sets:Array(ns).fill(false), note:(last&&last.note)||"", last:last}; }),
+      const done=(last&&last.setsDone)?Math.min(last.setsDone,ns):0;
+      return {name:x.name, header:x.header, reps:x.reps, rest:x.rest, sets:Array.from({length:ns},(_,i)=>i<done), note:(last&&last.note)||"", last:last}; }),
     sensacion:0, esfuerzo:(ls?ls.esfuerzo:6), duracion:(ls&&ls.duracion?String(ls.duracion):""), notas:"" };
 }
 function renderTrain(){
