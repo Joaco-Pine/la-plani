@@ -784,8 +784,10 @@ function dayEdited(mesoId,wi,di){ return Array.isArray(state.edits&&state.edits[
 
 /* logs ordenados del más nuevo al más viejo */
 function logsDesc(){ return [...state.logs].sort((a,b)=>(a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0))); }
+/* nombre limpio de un ejercicio guardado (sirve para logs viejos que guardaban el texto crudo) */
+function exName(t){ return parseEx(String(t==null?"":t)).name; }
 /* última vez que hiciste ESE ejercicio (por nombre), en cualquier día */
-function lastForExercise(name){ for(const l of logsDesc()){ const ex=(l.exercises||[]).find(e=>e.text===name); if(ex) return {note:ex.note||"", setsDone:ex.setsDone!=null?ex.setsDone:(ex.done?ex.series:0), series:ex.series, date:l.date}; } return null; }
+function lastForExercise(name){ for(const l of logsDesc()){ const ex=(l.exercises||[]).find(e=>exName(e.text)===name); if(ex) return {note:ex.note||"", setsDone:ex.setsDone!=null?ex.setsDone:(ex.done?ex.series:0), series:ex.series, date:l.date}; } return null; }
 /* última sesión de ese mismo día (para precargar RPE/duración) */
 function lastForDay(mesoName,dayName){ return logsDesc().find(l=>l.mesoName===mesoName&&l.dayName===dayName)||null; }
 
@@ -1061,7 +1063,7 @@ function renderProgress(){
     <div class="card pad"><label class="fld" style="margin:0"><span>Elegí un ejercicio</span><select id="exPick"></select></label><div id="exTimeline"></div></div>
     <div style="height:6px"></div>`;
   const map=new Map();
-  logs.forEach(l=>l.exercises.forEach(e=>{ if(!map.has(e.text)) map.set(e.text,[]); map.get(e.text).push({date:l.date,note:e.note,done:e.done,feel:l.sensacion,createdAt:l.createdAt}); }));
+  logs.forEach(l=>l.exercises.forEach(e=>{ const key=exName(e.text); if(!map.has(key)) map.set(key,[]); map.get(key).push({date:l.date,note:e.note,done:e.done,feel:l.sensacion,createdAt:l.createdAt}); }));
   const withNotes=[...map.entries()].filter(([_,a])=>a.some(x=>x.note)).map(([t])=>t);
   const options=withNotes.length?withNotes:[...map.keys()];
   const sel=view.querySelector("#exPick");
