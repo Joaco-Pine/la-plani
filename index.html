@@ -735,6 +735,7 @@ function parseRestSeconds(rest){
 /* =========================================================================
    ESTADO + storage
    ========================================================================= */
+const APP_VERSION="2026-10-18.3";
 const LS_KEY="laplani:v1";
 let state={logs:[],deleted:[],edits:{},prefs:{theme:null,sync:null}};
 function load(){ try{ const r=localStorage.getItem(LS_KEY); if(r){ const p=JSON.parse(r);
@@ -1124,7 +1125,8 @@ function renderData(){
       <p style="margin:0 0 8px;font-size:13.5px"><b>La Plani</b> junta las rutinas que te armó <b>Franco Militello</b> entre el 27 de noviembre de 2024 y mayo de 2025 (las que mandó escritas por WhatsApp).</p>
       <p class="muted" style="font-size:13px;margin:0 0 8px">Las semanas que Franco no modificó aparecen como «sin cambios» (repetís la anterior). Las notas de cada bloque resumen lo que explicó por chat. Los audios no entraron en el export, así que no se pueden incluir.</p>
       <p class="muted" style="font-size:13px;margin:0 0 8px">Desde mediados de 2025 pasó a mandar las rutinas como PDF: ese contenido no está en el export. Los ves listados en <button class="inline-link" id="goPdf">Rutinas → Mesociclos en PDF</button>.</p>
-      <p class="muted" style="font-size:13px;margin:0">Sos tu propio coach ahora: elegí el día, hacelo, anotá cómo salió y cómo te sentiste. El <button class="inline-link" id="goProg">Progreso</button> te muestra para dónde vas.</p></div>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">Sos tu propio coach ahora: elegí el día, hacelo, anotá cómo salió y cómo te sentiste. El <button class="inline-link" id="goProg">Progreso</button> te muestra para dónde vas.</p>
+      <p class="faint" style="font-size:11px;margin:0;letter-spacing:.3px">Versión ${esc(APP_VERSION)}</p></div>
     <div style="height:6px"></div><button class="btn ghost block sm danger" id="wipeBtn">Borrar todos mis datos</button><div style="height:6px"></div>`;
   view.querySelector("#copyBtn").onclick=async()=>{ const txt=JSON.stringify({logs:state.logs}); const ta=view.querySelector("#backup"); ta.value=txt;
     try{ await navigator.clipboard.writeText(txt); toast("Respaldo copiado 📋"); }catch(e){ ta.focus(); ta.select(); toast("Seleccioná y copiá (Ctrl/Cmd+C)"); } };
