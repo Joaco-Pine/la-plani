@@ -264,6 +264,20 @@ input[type=range]{flex:1;accent-color:var(--accent);height:30px}
 .resttag svg{width:13px;height:13px}
 .resttag:active{transform:scale(.95)}
 
+/* editor de rutina */
+.dayblock.editing{border:1px solid var(--accent);border-radius:12px;padding:12px;background:var(--surface-2);margin:12px 0}
+.editlist{display:flex;flex-direction:column}
+.editrow{border-top:1px dashed var(--border-strong);padding:10px 0}
+.editrow:first-child{border-top:0}
+.editrow-top{display:flex;gap:8px;align-items:center}
+.ed-name{flex:1;min-width:0}
+.ed-del{background:none;border:0;font-size:17px;flex:none;cursor:pointer;padding:4px}
+.editrow-nums{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:6px;margin-top:6px}
+.editrow-nums input{padding:8px 9px;font-size:13px}
+.editrow-move{display:flex;gap:6px;margin-top:6px}
+.editrow-move button{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px;font-size:14px;cursor:pointer;color:var(--muted)}
+.editrow-move button:active{transform:scale(.95)}
+
 /* cronómetro de descanso */
 .resttimer{position:fixed;left:12px;right:12px;margin:0 auto;max-width:calc(var(--maxw) - 24px);
   bottom:calc(80px + env(safe-area-inset-bottom,0px));z-index:50;display:flex;align-items:center;gap:11px;
@@ -720,9 +734,9 @@ function parseRestSeconds(rest){
    ESTADO + storage
    ========================================================================= */
 const LS_KEY="laplani:v1";
-let state={logs:[],deleted:[],prefs:{theme:null,sync:null}};
+let state={logs:[],deleted:[],edits:{},prefs:{theme:null,sync:null}};
 function load(){ try{ const r=localStorage.getItem(LS_KEY); if(r){ const p=JSON.parse(r);
-  state.logs=Array.isArray(p.logs)?p.logs:[]; state.deleted=Array.isArray(p.deleted)?p.deleted:[]; state.prefs=p.prefs||{theme:null,sync:null}; } }catch(e){} }
+  state.logs=Array.isArray(p.logs)?p.logs:[]; state.deleted=Array.isArray(p.deleted)?p.deleted:[]; state.edits=(p.edits&&typeof p.edits==="object")?p.edits:{}; state.prefs=p.prefs||{theme:null,sync:null}; } }catch(e){} }
 function save(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch(e){} }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function todayISO(){ const d=new Date(); const o=d.getTimezoneOffset(); return new Date(d-o*6e4).toISOString().slice(0,10); }
@@ -755,12 +769,22 @@ let toastT; function toast(m){ const el=document.getElementById("toast"); el.tex
    ENTRENAR
    ========================================================================= */
 const trainSel={mesoIdx:0,weekIdx:0,dayIdx:0};
-let draft=null;
+let draft=null, editingDay=null, editItems=null;
 const chatMesos=()=>PROGRAM.mesocycles.filter(m=>m.source==="chat");
+
+/* ejercicios de un día ya normalizados {name,series,reps,rest,header}.
+   Si vos lo editaste, usa tu versión; si no, parsea el texto original de Franco. */
+function normEx(raw){ const p=parseEx(raw); return {name:p.name, series:p.series||null, reps:p.reps||null, rest:p.rest||null, header:!!p.header}; }
+function dayItems(mesoId,wi,di,dayObj){ const e=state.edits&&state.edits[mesoId+"|"+wi+"|"+di];
+  if(Array.isArray(e)) return e.map(x=>({name:x.name||"", series:(x.series!=null&&x.series!=="")?+x.series:null, reps:x.reps||null, rest:x.rest||null, header:!!x.header}));
+  return (dayObj.ex||[]).map(normEx); }
+function dayEdited(mesoId,wi,di){ return Array.isArray(state.edits&&state.edits[mesoId+"|"+wi+"|"+di]); }
+
 function buildDraft(){
   const m=chatMesos()[trainSel.mesoIdx], w=m.weeks[trainSel.weekIdx], d=w.days[trainSel.dayIdx];
+  const items=dayItems(m.id,trainSel.weekIdx,trainSel.dayIdx,d);
   draft={ mesoName:m.name, weekLabel:w.label, dayName:d.name, dayNote:d.note||"", date:todayISO(),
-    exercises:d.ex.map(t=>{ const p=parseEx(t); const ns=p.header?0:(p.series||1); return {raw:t, header:!!p.header, series:ns, sets:Array(ns).fill(false), note:""}; }),
+    exercises:items.map(x=>{ const ns=x.header?0:(x.series||1); return {name:x.name, header:x.header, reps:x.reps, rest:x.rest, sets:Array(ns).fill(false), note:""}; }),
     sensacion:0, esfuerzo:6, duracion:"", notas:"" };
 }
 function renderTrain(){
@@ -806,14 +830,14 @@ function renderTrain(){
 
     <div class="section-title">Ejercicios · tocá cada serie al terminarla</div>
     <div class="exlist" id="exlist">
-      ${draft.exercises.map((e,i)=>{ const p=parseEx(e.raw);
-        if(e.header) return `<div class="exhdr">${esc(p.name)}</div>`;
+      ${draft.exercises.map((e,i)=>{
+        if(e.header) return `<div class="exhdr">${esc(e.name)}</div>`;
         const allDone=e.sets.length>0 && e.sets.every(Boolean);
         const dots=e.sets.map((on,si)=>`<button class="setdot ${on?"on":""}" data-set="${i}.${si}" aria-label="Serie ${si+1}">${si+1}</button>`).join("");
-        const reps=p.reps?`<span class="chip">× ${esc(p.reps)}</span>`:"";
-        const restTag=p.rest?`<button class="resttag" data-rest="${i}">${CLOCK}${esc(p.rest)}</button>`:"";
+        const reps=e.reps?`<span class="chip">× ${esc(e.reps)}</span>`:"";
+        const restTag=e.rest?`<button class="resttag" data-rest="${i}">${CLOCK}${esc(e.rest)}</button>`:"";
         return `<div class="ex ${allDone?"done":""}" data-i="${i}">
-             <div class="extop"><span class="extext">${esc(p.name)}</span></div>
+             <div class="extop"><span class="extext">${esc(e.name)}</span></div>
              <div class="sets">${dots}${reps}${restTag}</div>
              <div class="exlog"><input type="text" data-note="${i}" value="${esc(e.note)}" placeholder="¿Cómo salió? (ej: sin banda, +1 rep, con qué banda…)"></div>
            </div>`; }).join("")}
@@ -848,9 +872,9 @@ function renderTrain(){
     const now=!ex.sets[si]; ex.sets[si]=now; b.classList.toggle("on",now);
     view.querySelector(`.ex[data-i="${i}"]`).classList.toggle("done",ex.sets.every(Boolean));
     view.querySelector(".dayhead .pill").textContent=`${draft.exercises.filter(e=>!e.header&&e.sets.length&&e.sets.every(Boolean)).length}/${total} hechos`;
-    if(now){ const p=parseEx(ex.raw); const secs=parseRestSeconds(p.rest); if(secs) startRest(secs,p.name); } }));
+    if(now){ const secs=parseRestSeconds(ex.rest); if(secs) startRest(secs,ex.name); } }));
   view.querySelectorAll("[data-rest]").forEach(b=>b.addEventListener("click",()=>{
-    const p=parseEx(draft.exercises[+b.dataset.rest].raw); startRest(parseRestSeconds(p.rest),p.name); }));
+    const ex=draft.exercises[+b.dataset.rest]; startRest(parseRestSeconds(ex.rest),ex.name); }));
   view.querySelectorAll("[data-note]").forEach(inp=>inp.addEventListener("input",e=>{ draft.exercises[+e.target.dataset.note].note=e.target.value; }));
   view.querySelectorAll("[data-feel]").forEach(b=>b.addEventListener("click",()=>{ draft.sensacion=+b.dataset.feel;
     view.querySelectorAll("[data-feel]").forEach(x=>x.classList.toggle("on",+x.dataset.feel===draft.sensacion)); }));
@@ -864,7 +888,7 @@ function saveSession(){
   if(!draft.sensacion){ toast("Marcá cómo te sentiste 🙂");
     setTimeout(()=>document.getElementById("feel").scrollIntoView({behavior:"smooth",block:"center"}),60); return; }
   const log={ id:uid(), date:draft.date, createdAt:Date.now(), mesoName:draft.mesoName, weekLabel:draft.weekLabel, dayName:draft.dayName,
-    exercises:draft.exercises.filter(e=>!e.header).map(e=>{ const dn=e.sets.filter(Boolean).length; return {text:e.raw,series:e.series,setsDone:dn,done:dn>=e.series&&e.series>0,note:e.note.trim()}; }),
+    exercises:draft.exercises.filter(e=>!e.header).map(e=>{ const dn=e.sets.filter(Boolean).length; const ns=e.sets.length; return {text:e.name, series:ns, reps:e.reps||null, rest:e.rest||null, setsDone:dn, done:dn>=ns&&ns>0, note:e.note.trim()}; }),
     sensacion:draft.sensacion, esfuerzo:draft.esfuerzo, duracion:draft.duracion?+draft.duracion:null, notas:draft.notas.trim() };
   state.logs.push(log); save(); draft=null; renderTrain(); toast("¡Guardado! 💪"); maybeSync();
 }
@@ -902,16 +926,72 @@ function renderRoutines(){
             <div>
               ${(w.notes||[]).map(n=>`<div class="coachnote">${esc(n)}</div>`).join("")}
               ${w.note?`<div class="changenote">✏️ ${esc(w.note)}</div>`:""}
-              ${w.days.map(d=>{ const changed=(w.changedDays||[]).includes(d.name);
+              ${w.days.map((d,di)=>{
+                if(editingDay&&editingDay.mi===mi&&editingDay.wi===wi&&editingDay.di===di) return dayEditorHTML(m,wi,di,d);
+                const changed=(w.changedDays||[]).includes(d.name); const edited=dayEdited(m.id,wi,di);
                 return `<div class="dayblock">
-                  <div class="dh"><h4>${esc(d.name)}</h4>${changed?`<span class="badge adj">ajustado</span>`:""}</div>
+                  <div class="dh"><h4>${esc(d.name)}</h4>${changed?`<span class="badge adj">ajustado</span>`:""}${edited?`<span class="badge adj">tuyo</span>`:""}
+                    <button class="btn sm ghost editday" data-day="${mi}.${wi}.${di}" style="margin-left:auto;padding:5px 9px">✏️ Editar</button></div>
                   ${d.note?`<div class="dnote">⏱ ${esc(d.note)}</div>`:""}
-                  ${d.ex.map(exLineHTML).join("")}
+                  ${dayItems(m.id,wi,di,d).map(x=> x.header?`<div class="exline hdr">${esc(x.name)}</div>`:`<div class="exline"><div class="mv">${esc(x.name)}</div>${chipsHTML(x)?`<div class="exmeta">${chipsHTML(x)}</div>`:""}</div>`).join("")}
                 </div>`; }).join("")}
             </div></details>`;
         }).join("")}
       </div></details>`;
   }).join("");
+
+  // --- abrir editor de un día ---
+  view.querySelectorAll(".editday").forEach(b=>b.addEventListener("click",()=>{
+    const p=b.dataset.day.split("."); const mi=+p[0], wi=+p[1], di=+p[2];
+    const m=PROGRAM.mesocycles[mi], d=m.weeks[wi].days[di];
+    editingDay={mi,wi,di};
+    editItems=dayItems(m.id,wi,di,d).map(x=>({name:x.name,series:x.series,reps:x.reps,rest:x.rest,header:x.header}));
+    renderRoutines();
+    setTimeout(()=>{ const el=view.querySelector(".dayblock.editing"); el&&el.scrollIntoView({behavior:"smooth",block:"center"}); },40);
+  }));
+  // --- edición de campos ---
+  view.querySelectorAll(".ed-name").forEach(i=>i.addEventListener("input",e=>{ editItems[+e.target.dataset.xi].name=e.target.value; }));
+  view.querySelectorAll(".ed-series").forEach(i=>i.addEventListener("input",e=>{ const v=e.target.value.trim(); editItems[+e.target.dataset.xi].series=(v===""?null:(+v||null)); }));
+  view.querySelectorAll(".ed-reps").forEach(i=>i.addEventListener("input",e=>{ editItems[+e.target.dataset.xi].reps=e.target.value.trim()||null; }));
+  view.querySelectorAll(".ed-rest").forEach(i=>i.addEventListener("input",e=>{ editItems[+e.target.dataset.xi].rest=e.target.value.trim()||null; }));
+  view.querySelectorAll(".ed-del").forEach(b=>b.addEventListener("click",()=>{ editItems.splice(+b.dataset.xi,1); renderRoutines(); }));
+  view.querySelectorAll(".ed-up").forEach(b=>b.addEventListener("click",()=>{ const xi=+b.dataset.xi; if(xi>0){ const t=editItems[xi-1]; editItems[xi-1]=editItems[xi]; editItems[xi]=t; renderRoutines(); } }));
+  view.querySelectorAll(".ed-down").forEach(b=>b.addEventListener("click",()=>{ const xi=+b.dataset.xi; if(xi<editItems.length-1){ const t=editItems[xi+1]; editItems[xi+1]=editItems[xi]; editItems[xi]=t; renderRoutines(); } }));
+  const addB=view.querySelector(".ed-add"); if(addB) addB.addEventListener("click",()=>{ editItems.push({name:"",series:3,reps:null,rest:null,header:false}); renderRoutines(); });
+  const saveB=view.querySelector(".ed-save"); if(saveB) saveB.addEventListener("click",()=>{
+    const m=PROGRAM.mesocycles[editingDay.mi]; const k=m.id+"|"+editingDay.wi+"|"+editingDay.di;
+    const clean=editItems.map(x=>({name:(x.name||"").trim(), series:x.header?null:(x.series!=null?x.series:null), reps:x.header?null:(x.reps||null), rest:x.header?null:(x.rest||null), header:!!x.header})).filter(x=>x.name);
+    state.edits=state.edits||{}; state.edits[k]=clean; save(); maybeSync(); editingDay=null; editItems=null; draft=null; renderRoutines(); toast("Rutina actualizada ✏️"); });
+  const cancelB=view.querySelector(".ed-cancel"); if(cancelB) cancelB.addEventListener("click",()=>{ editingDay=null; editItems=null; renderRoutines(); });
+  const restoreB=view.querySelector(".ed-restore"); if(restoreB) restoreB.addEventListener("click",()=>{
+    const m=PROGRAM.mesocycles[editingDay.mi]; const k=m.id+"|"+editingDay.wi+"|"+editingDay.di;
+    state.edits[k]=null; save(); maybeSync(); editingDay=null; editItems=null; draft=null; renderRoutines(); toast("Restaurado al original de Franco"); });
+}
+function dayEditorHTML(m,wi,di,d){
+  const rows=(editItems||[]).map((x,xi)=>`
+    <div class="editrow" data-xi="${xi}">
+      <div class="editrow-top">
+        <input type="text" class="ed-name" data-xi="${xi}" value="${esc(x.name||"")}" placeholder="Ejercicio / movimiento">
+        <button class="ed-del" data-xi="${xi}" title="Borrar ejercicio">🗑</button>
+      </div>
+      ${x.header?"":`<div class="editrow-nums">
+        <input type="number" class="ed-series" data-xi="${xi}" value="${x.series!=null?x.series:""}" placeholder="series" min="0" inputmode="numeric">
+        <input type="text" class="ed-reps" data-xi="${xi}" value="${esc(x.reps||"")}" placeholder="reps">
+        <input type="text" class="ed-rest" data-xi="${xi}" value="${esc(x.rest||"")}" placeholder="descanso">
+      </div>`}
+      <div class="editrow-move"><button class="ed-up" data-xi="${xi}" title="Subir">↑</button><button class="ed-down" data-xi="${xi}" title="Bajar">↓</button></div>
+    </div>`).join("");
+  return `<div class="dayblock editing">
+    <div class="dh"><h4>✏️ ${esc(d.name)}</h4></div>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">Cambiá movimiento, series, reps y descanso. Agregá o sacá ejercicios. Se guarda y se sincroniza.</p>
+    <div class="editlist">${rows}</div>
+    <button class="btn sm ghost block ed-add" style="margin-top:8px">+ Agregar ejercicio</button>
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn sm primary ed-save" style="flex:1">Guardar cambios</button>
+      <button class="btn sm ed-cancel" style="flex:1">Cancelar</button>
+    </div>
+    ${dayEdited(m.id,wi,di)?`<button class="btn sm danger block ed-restore" style="margin-top:8px">Restaurar original de Franco</button>`:""}
+  </div>`;
 }
 
 /* =========================================================================
@@ -1107,7 +1187,7 @@ function fmtAgo(ts){ if(!ts) return "nunca"; const s=Math.round((Date.now()-ts)/
   if(m<60) return "hace "+m+" min"; const h=Math.round(m/60); if(h<24) return "hace "+h+" h"; return "hace "+Math.round(h/24)+" d"; }
 function syncConfigured(){ const c=state.prefs.sync; return !!(c&&c.url&&c.key&&c.code); }
 function maybeSync(){ if(!syncConfigured()) return; if(typeof navigator!=="undefined"&&navigator.onLine===false) return;
-  syncNow().then(res=>{ if(res&&res.ok){ if(current!=="train"){ renderers[current]&&renderers[current](); } else if(document.getElementById("syStatus")){ renderData(); } } }); }
+  syncNow().then(res=>{ if(res&&res.ok){ renderers[current]&&renderers[current](); } }); }
 async function syncNow(){
   const c=state.prefs.sync; if(!syncConfigured()) return {ok:false,err:"no configurado"};
   const base=c.url.replace(/\/+$/,"")+"/rest/v1/sync";
@@ -1121,8 +1201,9 @@ async function syncNow(){
     for(const l of [...(remote.logs||[]),...state.logs]){ if(!l||!l.id||delSet.has(l.id)) continue;
       const ex=map.get(l.id); if(!ex||(l.createdAt||0)>=(ex.createdAt||0)) map.set(l.id,l); }
     const merged=[...map.values()];
-    state.logs=merged; state.deleted=[...delSet]; save();
-    const body=JSON.stringify([{code:c.code,data:{logs:merged,deleted:[...delSet]},updated_at:new Date().toISOString()}]);
+    const mergedEdits=Object.assign({},remote.edits||{},state.edits||{});
+    state.logs=merged; state.deleted=[...delSet]; state.edits=mergedEdits; save();
+    const body=JSON.stringify([{code:c.code,data:{logs:merged,deleted:[...delSet],edits:mergedEdits},updated_at:new Date().toISOString()}]);
     const w=await fetch(base+"?on_conflict=code",{method:"POST",headers:Object.assign({"Prefer":"resolution=merge-duplicates,return=minimal"},h),body:body});
     if(!w.ok) throw new Error("HTTP "+w.status+" al guardar");
     state.prefs.sync.lastSync=Date.now(); state.prefs.sync.lastErr=null; save();
@@ -1131,7 +1212,9 @@ async function syncNow(){
 }
 
 const renderers={train:renderTrain,routines:renderRoutines,history:renderHistory,progress:renderProgress,data:renderData};
-load(); applyTheme(); bindTimer(); renderTrain(); maybeSync();
+load(); applyTheme(); bindTimer(); renderTrain();
+try{ navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); }catch(e){}
+maybeSync();
 </script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
